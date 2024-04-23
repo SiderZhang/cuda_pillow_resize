@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cmath>
 #include <stdio.h>
+#include "jpeg.h"
 
 #define PRECISION_BITS (32 - 8 - 2)
 
@@ -42,21 +43,22 @@ __global__ void coeffs(int inSize, int in0, int in1,
 
     /* malloc check ok, ksize*sizeof(double) > 2*sizeof(int) */
     bounds = boundsp;
-    int xx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (xx >= outSize) {
+    int _xx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (_xx >= outSize) {
         return;
     }
 
+    for (unsigned int xx = _xx;xx < outSize;xx += gridDim.x * blockDim.x) {
         center = in0 + (xx + 0.5) * scale;
         ww = 0.0;
         ss = 1.0 / filterscale;
         // Round the value
-        xmin = (int)(center - support + 0.5);
+        xmin = (int) (center - support + 0.5);
         if (xmin < 0) {
             xmin = 0;
         }
         // Round the value
-        xmax = (int)(center + support + 0.5);
+        xmax = (int) (center + support + 0.5);
         if (xmax > inSize) {
             xmax = inSize;
         }
@@ -91,6 +93,7 @@ __global__ void coeffs(int inSize, int in0, int in1,
 
         bounds[xx * 2 + 0] = xmin;
         bounds[xx * 2 + 1] = xmax;
+    }
 }
 
 
@@ -100,189 +103,118 @@ __global__ void normalize_coeffs(int outSize, int ksize, double *prekk) {
     // use the same buffer for normalized coefficients
     kk = (INT32 *)prekk;
 
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    if (x >= outSize * ksize) {
+    unsigned int _x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (_x >= outSize * ksize) {
         return;
     }
 
-    if (prekk[x] < 0) {
-        kk[x] = (int)(-0.5 + prekk[x] * (1 << PRECISION_BITS));
-    } else {
-        kk[x] = (int)(0.5 + prekk[x] * (1 << PRECISION_BITS));
+
+    for (unsigned int x = _x;x < outSize * ksize;x += gridDim.x * blockDim.x) {
+        if (prekk[x] < 0) {
+            kk[x] = (int) (-0.5 + prekk[x] * (1 << PRECISION_BITS));
+        } else {
+            kk[x] = (int) (0.5 + prekk[x] * (1 << PRECISION_BITS));
+        }
     }
 }
 
 __global__ void shift_ysize(int *boundsp, int ysize) {
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= ysize) {
+    unsigned int _i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (_i >= ysize) {
         return;
     }
 //    printf("Bound %d %d\n", boundsp[i * 2], boundsp[0]);
 
     // Shift bounds for vertical pass
-    boundsp[i * 2] -= boundsp[0];
+    for (unsigned int i = _i;i < ysize;i += gridDim.x * blockDim.x) {
+        boundsp[i * 2] -= boundsp[0];
+    }
 }
-
-
-UINT8 lookups_h[1280] = {
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   2,   3,   4,   5,
-        6,   7,   8,   9,   10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,  22,
-        23,  24,  25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,
-        40,  41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,
-        57,  58,  59,  60,  61,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,  73,
-        74,  75,  76,  77,  78,  79,  80,  81,  82,  83,  84,  85,  86,  87,  88,  89,  90,
-        91,  92,  93,  94,  95,  96,  97,  98,  99,  100, 101, 102, 103, 104, 105, 106, 107,
-        108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
-        125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
-        142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158,
-        159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
-        176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192,
-        193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209,
-        210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226,
-        227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243,
-        244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255,
-};
 
 __global__ void build_result_horiz(int srcXsize, int channelCount, int xsize, int ysize,
                                    unsigned char* input, unsigned char* output, int ksize, int *bounds, double *prekk, unsigned char* _lookups) {
-    unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= xsize * ysize) {
+    unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (_id >= xsize * ysize) {
         return;
     }
 
-    unsigned int xx = id % xsize;
-    unsigned int yy = id / xsize;
+    for (unsigned int id = _id;id < xsize * ysize;id += gridDim.x * blockDim.x) {
 
-    int ss0, ss1, ss2;
-    INT32 *kk = (INT32 *)prekk;
+        unsigned int xx = id % xsize;
+        unsigned int yy = id / xsize;
 
-    int xmin = bounds[xx * 2 + 0];
-    int xmax = bounds[xx * 2 + 1];
-    INT32 *k = &kk[xx * ksize];
-    ss0 = ss1 = ss2 = 1 << (PRECISION_BITS - 1);
+        int ss0, ss1, ss2;
+        INT32 *kk = (INT32 *) prekk;
 
-    for (int x = 0; x < xmax; x++) {
+        int xmin = bounds[xx * 2 + 0];
+        int xmax = bounds[xx * 2 + 1];
+        INT32 *k = &kk[xx * ksize];
+        ss0 = ss1 = ss2 = 1 << (PRECISION_BITS - 1);
 
-        ss0 += ((UINT8)input[yy * srcXsize * channelCount +  (x + xmin) * channelCount + 0]) *
-               k[x];
-        ss1 += ((UINT8)input[yy * srcXsize * channelCount +  (x + xmin) * channelCount + 1]) *
-               k[x];
-        ss2 += ((UINT8)input[yy * srcXsize * channelCount +  (x + xmin) * channelCount + 2]) *
-               k[x];
+        for (int x = 0; x < xmax; x++) {
+
+            ss0 += ((UINT8) input[yy * srcXsize * channelCount + (x + xmin) * channelCount + 0]) *
+                   k[x];
+            ss1 += ((UINT8) input[yy * srcXsize * channelCount + (x + xmin) * channelCount + 1]) *
+                   k[x];
+            ss2 += ((UINT8) input[yy * srcXsize * channelCount + (x + xmin) * channelCount + 2]) *
+                   k[x];
+        }
+
+        UINT8 *lookups = &_lookups[640];
+        UINT8 ss0_1 = lookups[ss0 >> PRECISION_BITS];
+        UINT8 ss1_1 = lookups[ss1 >> PRECISION_BITS];
+        UINT8 ss2_1 = lookups[ss2 >> PRECISION_BITS];
+
+        output[yy * xsize * channelCount + xx * channelCount + 0] = ss0_1;
+        output[yy * xsize * channelCount + xx * channelCount + 1] = ss1_1;
+        output[yy * xsize * channelCount + xx * channelCount + 2] = ss2_1;
     }
-
-    UINT8 *lookups = &_lookups[640];
-    UINT8 ss0_1 = lookups[ss0 >> PRECISION_BITS];
-    UINT8 ss1_1 = lookups[ss1 >> PRECISION_BITS];
-    UINT8 ss2_1 = lookups[ss2 >> PRECISION_BITS];
-
-    output[yy * xsize * channelCount + xx * channelCount + 0] = ss0_1;
-    output[yy * xsize * channelCount + xx * channelCount + 1] = ss1_1;
-    output[yy * xsize * channelCount + xx * channelCount + 2] = ss2_1;
 }
 
 __global__ void build_result_vert(int srcXsize, int channelCount, int xsize, int ysize,
                                   unsigned char* input, unsigned char* output, int ksize, int *bounds, double *prekk, unsigned char* _lookups) {
-    unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= xsize * ysize) {
+    unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (_id >= xsize * ysize) {
         return;
     }
 
-    unsigned int xx = id % xsize;
-    unsigned int yy = id / xsize;
+    for (unsigned int id = _id;id < xsize * ysize;id += gridDim.x * blockDim.x) {
+        unsigned int xx = id % xsize;
+        unsigned int yy = id / xsize;
 
-    int ss0, ss1, ss2;
-    INT32 *kk = (INT32 *)prekk;
+        int ss0, ss1, ss2;
+        INT32 *kk = (INT32 *) prekk;
 
-    INT32 *k = &kk[yy * ksize];
-    int ymin = bounds[yy * 2 + 0];
-    int ymax = bounds[yy * 2 + 1];
+        INT32 *k = &kk[yy * ksize];
+        int ymin = bounds[yy * 2 + 0];
+        int ymax = bounds[yy * 2 + 1];
 
-    ss0 = ss1 = ss2 = 1 << (PRECISION_BITS - 1);
-    for (int y = 0; y < ymax; y++) {
-        ss0 += ((UINT8)input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 0]) * k[y];
-        ss1 += ((UINT8)input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 1]) * k[y];
-        ss2 += ((UINT8)input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 2]) * k[y];
+        ss0 = ss1 = ss2 = 1 << (PRECISION_BITS - 1);
+        for (int y = 0; y < ymax; y++) {
+            ss0 += ((UINT8) input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 0]) * k[y];
+            ss1 += ((UINT8) input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 1]) * k[y];
+            ss2 += ((UINT8) input[(y + ymin) * srcXsize * channelCount + xx * channelCount + 2]) * k[y];
+        }
+
+        UINT8 *lookups = &_lookups[640];
+        UINT8 ss0_1 = lookups[ss0 >> PRECISION_BITS];
+        UINT8 ss1_1 = lookups[ss1 >> PRECISION_BITS];
+        UINT8 ss2_1 = lookups[ss2 >> PRECISION_BITS];
+        output[yy * xsize * channelCount + xx * channelCount + 0] = ss0_1;
+        output[yy * xsize * channelCount + xx * channelCount + 1] = ss1_1;
+        output[yy * xsize * channelCount + xx * channelCount + 2] = ss2_1;
     }
-
-    UINT8 *lookups = &_lookups[640];
-    UINT8 ss0_1 = lookups[ss0 >> PRECISION_BITS];
-    UINT8 ss1_1 = lookups[ss1 >> PRECISION_BITS];
-    UINT8 ss2_1 = lookups[ss2 >> PRECISION_BITS];
-    output[yy * xsize * channelCount + xx * channelCount + 0] = ss0_1;
-    output[yy * xsize * channelCount + xx * channelCount + 1] = ss1_1;
-    output[yy * xsize * channelCount + xx * channelCount + 2] = ss2_1;
 }
 
-int *bounds_horiz_d;
-double *kk_horiz_d;
-int ksize_horiz;
+void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize,
+    int *bounds_horiz_d,
+    double *kk_horiz_d,
+    int ksize_horiz,
+    int  *bounds_vert_d,
+    double *kk_vert_d,
+    int ksize_vert) {
 
-int  *bounds_vert_d;
-double *kk_vert_d;
-int ksize_vert;
-
-void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize) {
     float box[4] = {0, 0, 1.0f * im_xsize, 1.0f * im_ysize};
 
     double filterscale_horiz = (double)(box[2] - box[0]) / xsize;
@@ -294,7 +226,7 @@ void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize) 
     cudaMalloc(&kk_horiz_d, xsize * ksize_horiz * sizeof(double));
     cudaMalloc(&bounds_horiz_d, xsize * 2 * sizeof(int));
 
-    coeffs<<<16, 256>>>(im_xsize,
+    coeffs<<<256, 256>>>(im_xsize,
                         box[0],
                         box[2],
                         xsize,
@@ -311,7 +243,7 @@ void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize) 
     cudaMalloc(&kk_vert_d, ysize * ksize_vert * sizeof(double));
     cudaMalloc(&bounds_vert_d, ysize * 2 * sizeof(int));
 
-    coeffs<<<16, 256>>>(im_ysize,
+    coeffs<<<256, 256>>>(im_ysize,
                         box[1],
                         box[3],
                         ysize,
@@ -320,28 +252,47 @@ void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize) 
 
     normalize_coeffs<<<ysize, ksize_vert>>>(ysize, ksize_vert, kk_vert_d);
 
-    shift_ysize<<<16, 256>>>(bounds_vert_d, ysize);
+    shift_ysize<<<256, 256>>>(bounds_vert_d, ysize);
 }
 
-__global__ void rescale_normalize_d(unsigned char *data, double* result, int xsize, int ysize) {
-    unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= xsize * ysize) {
+__global__ void rescale_normalize_d(unsigned char *data, float* result, int xsize, int ysize) {
+    unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (_id >= xsize * ysize) {
         return;
     }
 
-    // rescale
-    result[id * 3 + 0] = ((double)data[id * 3 + 0]) * 1.0 / 255;
-    result[id * 3 + 1] = ((double)data[id * 3 + 1]) * 1.0 / 255;
-    result[id * 3 + 2] = ((double)data[id * 3 + 2]) * 1.0 / 255;
-    // normalize
-    result[id * 3 + 0] = (result[id * 3 + 0] - 0.5) / 0.5;
-    result[id * 3 + 1] = (result[id * 3 + 1] - 0.5) / 0.5;
-    result[id * 3 + 2] = (result[id * 3 + 2] - 0.5) / 0.5;
+    for (unsigned int id = _id;id < xsize * ysize;id += gridDim.x * blockDim.x) {
+        // rescale
+        double pixel0 = ((double)data[id * 3 + 0]) * 1.0 / 255;
+        double pixel1 = ((double)data[id * 3 + 1]) * 1.0 / 255;
+        double pixel2 = ((double)data[id * 3 + 2]) * 1.0 / 255;
+
+        // normalize
+        pixel0 = (pixel0 - 0.5) / 0.5;
+        pixel1 = (pixel1 - 0.5) / 0.5;
+        pixel2 = (pixel2 - 0.5) / 0.5;
+
+        // transpose
+        result[id + 0 * xsize * ysize] = (float)pixel0;
+        result[id + 1 * xsize * ysize] = (float)pixel1;
+        result[id + 2 * xsize * ysize] = (float)pixel2;
+    }
 }
 
-void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char* image_pixel_data, int channels,
-            unsigned int target_xsize, unsigned int target_ysize, unsigned char* result_pixel_data, double *normalized_pixel_data) {
-    coffes(source_xsize, source_ysize, target_xsize, target_ysize);
+extern "C" void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char* image_pixel_data, int channels,
+            unsigned int target_xsize, unsigned int target_ysize, float *normalized_pixel_data) {
+
+    int *bounds_horiz_d;
+    double *kk_horiz_d;
+    int ksize_horiz;
+
+    int  *bounds_vert_d;
+    double *kk_vert_d;
+    int ksize_vert;
+
+    coffes(source_xsize, source_ysize, target_xsize, target_ysize,
+        bounds_horiz_d, kk_horiz_d, ksize_horiz, bounds_vert_d, kk_vert_d, ksize_vert);
 
     unsigned char* input;
     cudaMalloc(&input, source_xsize * source_ysize * channels * sizeof(unsigned char));
@@ -354,20 +305,98 @@ void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char*
     unsigned char* result_pixel_data_d;
     cudaMalloc(&result_pixel_data_d, target_xsize * target_ysize * channels * sizeof(unsigned char));
 
+    UINT8 lookups_h[1280] = {
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+            0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,   2,   3,   4,   5,
+            6,   7,   8,   9,   10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,  22,
+            23,  24,  25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,
+            40,  41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,
+            57,  58,  59,  60,  61,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,  73,
+            74,  75,  76,  77,  78,  79,  80,  81,  82,  83,  84,  85,  86,  87,  88,  89,  90,
+            91,  92,  93,  94,  95,  96,  97,  98,  99,  100, 101, 102, 103, 104, 105, 106, 107,
+            108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+            125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
+            142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158,
+            159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
+            176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192,
+            193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209,
+            210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226,
+            227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243,
+            244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255,
+    };
+
     unsigned char* looksup_d;
     cudaMalloc(&looksup_d, 1280 * sizeof(unsigned char));
     cudaMemcpy(looksup_d, lookups_h, 1280 * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
-    build_result_horiz<<<16, 128>>>(source_xsize, channels, target_xsize, source_ysize, input, temp, ksize_horiz, bounds_horiz_d, kk_horiz_d, looksup_d);
-    build_result_vert<<<16, 128>>>(target_xsize, channels, target_xsize, target_ysize, temp, result_pixel_data_d, ksize_vert, bounds_vert_d, kk_vert_d, looksup_d);
+    build_result_horiz<<<256, 1024>>>(source_xsize, channels, target_xsize, source_ysize, input, temp, ksize_horiz, bounds_horiz_d, kk_horiz_d, looksup_d);
+    build_result_vert<<<256, 1024>>>(target_xsize, channels, target_xsize, target_ysize, temp, result_pixel_data_d, ksize_vert, bounds_vert_d, kk_vert_d, looksup_d);
 
-//    cudaMemcpy(result_pixel_data, result_pixel_data_d, target_xsize * target_ysize * channels * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+    float* normalized_pixel_data_d;
+    cudaMalloc(&normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(float));
 
-    double* normalized_pixel_data_d;
-    cudaMalloc(&normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(double));
+    rescale_normalize_d<<<256, 1024>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize);
 
-    rescale_normalize_d<<<16, 256>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize);
-    cudaMemcpy(normalized_pixel_data, normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+    cudaMemcpy(normalized_pixel_data, normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(float), cudaMemcpyDeviceToHost);
 
     cudaFree(bounds_horiz_d);
     cudaFree(kk_horiz_d);
@@ -380,9 +409,15 @@ void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char*
     cudaFree(result_pixel_data_d);
     cudaFree(normalized_pixel_data_d);
 }
-//
-//int main() {
-//    const char* filename = "/home/siderzhang/2.jpg";
+
+int main() {
+    const char* filename = "/home/siderzhang/2.jpg";
+    unsigned char *outBuffer = NULL;
+    unsigned int width;
+    unsigned int height;
+    unsigned int channels;
+
+    read_jpeg_file(filename, &outBuffer, &width, &height, &channels);
 //    UINT8 outBuffer[3600] = {
 //            144, 28, 63, 159, 41, 76, 159, 33, 71, 167, 36, 76, 175, 38, 82, 176, 36, 81, 184, 42, 88, 172, 30, 76, 184, 44, 89, 172, 32, 77, 182, 43, 85, 176, 35, 78, 187, 42, 85, 196, 46, 91, 177, 24, 70, 190, 40, 88, 162, 24, 75, 194, 56, 108, 173, 25, 77, 167, 15, 64, 180, 33, 75, 155, 21, 54, 142, 30, 52, 125, 29, 43, 119, 33, 42, 92, 9, 19, 108, 21, 37, 114, 29, 48, 92, 13, 34, 87, 19, 40, 33, 0, 3, 68, 17, 36, 88, 16, 36, 99, 15, 38, 117, 25, 48, 123, 28, 52, 112, 10, 34, 130, 26, 51, 104, 0, 23, 116, 12, 35, 110, 6, 39, 132, 27, 60, 141, 29, 65, 155, 39, 76, 158, 37, 78, 155, 30, 72, 159, 34, 76, 145, 23, 64, 136, 14, 55, 158, 38, 76, 177, 55, 94, 158, 36, 73, 149, 23, 60, 163, 33, 71, 169, 35, 72, 172, 40, 80, 167, 46, 91, 140, 19, 64, 163, 30, 77, 163, 26, 70, 147, 15, 54, 143, 24, 54, 124, 27, 46, 117, 35, 47, 91, 20, 26, 93, 23, 31, 94, 22, 33, 75, 4, 18, 67, 3, 19, 62, 10, 23, 24, 0, 0, 49, 11, 24, 82, 21, 37, 92, 19, 36, 109, 30, 49, 109, 24, 45, 108, 16, 37, 121, 28, 49, 100, 7, 26, 103, 10, 29, 67, 0, 14, 90, 10, 37, 102, 17, 46, 118, 31, 63, 124, 33, 68, 121, 30, 65, 133, 41, 78, 128, 38, 73, 129, 42, 76, 110, 25, 56, 100, 14, 43, 115, 29, 56, 122, 32, 57, 119, 25, 49, 126, 28, 51, 114, 19, 43, 116, 27, 57, 111, 22, 54, 122, 21, 55, 127, 22, 55, 115, 12, 41, 106, 17, 39, 81, 13, 24, 63, 11, 15, 70, 28, 29, 58, 20, 19, 82, 40, 42, 74, 32, 36, 63, 27, 31, 90, 64, 67, 106, 96, 95, 74, 60, 60, 69, 33, 37, 68, 17, 24, 79, 22, 31, 71, 8, 19, 84, 13, 27, 89, 17, 31, 84, 12, 26, 84, 12, 26, 44, 0, 3, 66, 1, 25, 77, 8, 36, 92, 23, 52, 88, 21, 52, 74, 9, 39, 76, 13, 44, 64, 5, 35, 64, 8, 35, 63, 9, 32, 56, 3, 23, 78, 24, 40, 75, 19, 32, 68, 8, 18, 95, 34, 42, 86, 26, 36, 104, 52, 65, 160, 105, 124, 81, 12, 33, 65, 0, 11, 79, 6, 26, 66, 4, 19, 64, 21, 28, 42, 14, 13, 21, 2, 0, 74, 56, 52, 100, 76, 74, 85, 61, 59, 113, 92, 89, 109, 96, 90, 116, 116, 106, 111, 108, 99, 121, 100, 97, 91, 59, 60, 80, 41, 44, 60, 18, 22, 73, 24, 30, 56, 3, 11, 60, 7, 15, 62, 9, 17, 70, 6, 32, 84, 21, 48, 87, 27, 55, 102, 46, 75, 107, 57, 86, 106, 61, 90, 121, 82, 111, 121, 87, 112, 107, 78, 100, 128, 101, 118, 86, 62, 75, 51, 26, 32, 63, 37, 40, 128, 100, 97, 188, 159, 155, 164, 139, 134, 124, 109, 106, 161, 142, 144, 70, 35, 42, 44, 1, 11, 45, 0, 10, 41, 4, 12, 30, 9, 14, 7, 0, 0, 50, 47, 42, 81, 76, 72, 149, 135, 132, 150, 131, 127, 109, 88, 83, 83, 69, 60, 119, 113, 101, 98, 96, 83, 99, 91, 80, 73, 58, 51, 76, 55, 50, 88, 63, 59, 106, 74, 75, 64, 30, 31, 47, 12, 16, 33, 0, 2, 89,
 //            12, 46, 124, 48, 84, 157, 87, 123, 197, 137, 171, 211, 162, 194, 205, 166, 197, 212, 181, 212, 206, 183, 209, 220, 205, 226, 221, 210, 226, 150, 143, 151, 85, 79, 81, 104, 96, 93, 163, 156, 146, 192, 184, 171, 171, 165, 151, 87, 84, 75, 37, 27, 25, 35, 8, 13, 50, 12, 23, 45, 5, 16, 113, 81, 92, 108, 91, 99, 111, 107, 108, 105, 107, 106, 134, 133, 129, 137, 126, 124, 121, 103, 99, 134, 114, 107, 110, 92, 82, 107, 95, 79, 154, 147, 129, 184, 178, 164, 148, 138, 128, 119, 102, 95, 126, 105, 102, 150, 122, 121, 141, 111, 113, 150, 119, 124, 145, 114, 120, 99, 0, 39, 152, 48, 97, 209, 116, 163, 253, 174, 219, 242, 180, 221, 193, 147, 184, 164, 130, 163, 139, 116, 145, 111, 97, 120, 147, 138, 155, 139, 134, 141, 94, 92, 93, 103, 102, 97, 127, 127, 115, 137, 138, 120, 174, 171, 156, 141, 130, 124, 54, 29, 32, 60, 17, 27, 73, 20, 36, 62, 7, 28, 162, 115, 135, 158, 130, 145, 172, 159, 168, 162, 157, 163, 141, 137, 138, 139, 125, 124, 133, 114, 110, 139, 114, 107, 150, 126, 114, 138, 121, 103, 179, 166, 147, 214, 198, 185, 208, 189, 182, 173, 148, 144, 182, 150, 151, 195, 155, 163, 201, 159, 169, 188, 146, 158, 150, 108, 122, 146, 7, 72, 170, 40, 104, 179, 64, 123, 176, 82, 135, 140, 66, 115, 100, 47, 89, 104, 68, 104, 108, 85, 114, 178, 164, 187, 197, 188, 205, 141, 138, 145, 36, 36, 36, 39, 40, 34, 84, 86, 73, 86, 89, 72, 128, 122, 108, 97, 69, 68, 85, 38, 48, 80, 12, 33, 112, 36, 62, 126, 50, 80, 192, 128, 155, 156, 114, 136, 135, 111, 125, 176, 166, 174, 201, 195, 197, 208, 197, 195, 191, 174, 167, 184, 162, 151, 169, 148, 131, 110, 95, 72, 185, 167, 147, 241, 211, 203, 237, 198, 199, 164, 117, 123, 145, 93, 105, 159, 101, 116, 220, 158, 179, 242, 180, 205, 213, 151, 176, 189, 26, 105, 220, 68, 143, 219, 85, 154, 174, 64, 125, 157, 74, 126, 157, 98, 142, 154, 117, 151, 214, 189, 218, 194, 179, 200, 184, 176, 189, 158, 151, 159, 90, 86, 87, 22, 18, 15, 49, 49, 41, 59, 59, 47, 105, 88, 81, 92, 41, 50, 113, 34, 56, 134, 39, 69, 168, 64, 99, 184, 84, 122, 236, 150, 185, 171, 112, 140, 167, 134, 151, 179, 166, 175, 198, 194, 195, 146, 141, 137, 139, 130, 121, 105, 92, 76, 111, 99, 77, 161, 154, 126, 193, 172, 151, 255, 218, 219, 200, 132, 145, 157, 80, 100, 152, 70, 93, 146, 57, 89, 156, 64, 101, 193, 101, 142, 221, 129, 170, 255, 83, 172, 233, 71, 154, 247, 109, 184, 215, 105, 168, 164, 84, 135, 190, 135, 174, 213, 180, 209, 206, 189, 208, 195, 183, 197, 166, 159, 167, 148, 138, 146, 120, 111, 114, 96, 86, 85, 24, 14, 12, 32, 25, 19, 82, 57, 60, 101, 44, 59, 142, 62
@@ -392,14 +427,22 @@ void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char*
 //    unsigned int im_xsize = 40;
 //    unsigned int im_ysize = 30;
 //    unsigned int channels = 3;
-//
-//    int xsize = 20;
-//    int ysize = 15;
-//
-//    unsigned char* tempTest = (unsigned char*)calloc(xsize * ysize, channels * sizeof(unsigned char));
-//    double* result_pixel_data = (double*) calloc(xsize * ysize, channels * sizeof(double));
-//    resize(im_xsize, im_ysize, outBuffer, channels, xsize, ysize, tempTest, result_pixel_data);
-//
+
+    for (int i =0;i < 360;i++) {
+        for (int j = 0;j < 10;j++) {
+            std::cout<<(UINT8)outBuffer[i * 10 + j];
+        }
+
+        std::cout<<std::endl;
+    }
+
+    int xsize = 20;
+    int ysize = 15;
+
+    unsigned char* tempTest = (unsigned char*)calloc(xsize * ysize, channels * sizeof(unsigned char));
+    float* result_pixel_data = (float*) calloc(xsize * ysize, channels * sizeof(float));
+    resize(width, height, outBuffer, channels, xsize, ysize, result_pixel_data);
+
 //    for (int j = 0;j < 3;j++) {
 //        for (int i = 0;i < 300;i++) {
 //            uint s = ((uint8_t *)tempTest)[i * 3 + j];
@@ -409,9 +452,9 @@ void resize(unsigned int source_xsize, unsigned int source_ysize, unsigned char*
 //        }
 //        std::cout<<std::endl;
 //    }
-//
-//    cudaDeviceSynchronize();
-//
-//    std::cout<<"Hello World!"<<std::endl;
-//    return 0;
-//}
+
+    cudaDeviceSynchronize();
+
+    std::cout<<"Hello World!"<<std::endl;
+    return 0;
+}
