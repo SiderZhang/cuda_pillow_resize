@@ -6,7 +6,15 @@
 #include <jpeglib.h>
 #include <cerrno>
 #include <cstring>
+#include <exception>
+#include <iostream>
+#include <stdexcept>
 
+void jpeg_error(j_common_ptr cinfo) {
+    char err_msg[JMSG_LENGTH_MAX];
+    (*cinfo->err->format_message)(cinfo, err_msg);
+    throw std::invalid_argument(err_msg);
+}
 
 int read_jpeg_file(const char *input_filename, unsigned char **output_buffer, unsigned int *width, unsigned int *height, unsigned int *channels) {
     struct jpeg_decompress_struct cinfo;
@@ -24,32 +32,39 @@ int read_jpeg_file(const char *input_filename, unsigned char **output_buffer, un
         return -1;
     }
     cinfo.err = jpeg_std_error(&jerr);
+    jerr.error_exit = jpeg_error;
 
-    jpeg_create_decompress(&cinfo);
-    jpeg_stdio_src(&cinfo, input_file);
+    try {
+        jpeg_create_decompress(&cinfo);
+        jpeg_stdio_src(&cinfo, input_file);
 
-    jpeg_read_header(&cinfo, TRUE);
-    jpeg_start_decompress(&cinfo);
-    row_width = cinfo.output_width * cinfo.output_components;
-    *width = cinfo.output_width;
-    *height = cinfo.output_height;
-    *channels = cinfo.output_components;
+        jpeg_read_header(&cinfo, TRUE);
+        jpeg_start_decompress(&cinfo);
+        row_width = cinfo.output_width * cinfo.output_components;
+        *width = cinfo.output_width;
+        *height = cinfo.output_height;
+        *channels = cinfo.output_components;
 
-    buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE, row_width, 1);
+        buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE, row_width, 1);
 
-    *output_buffer = (unsigned char*)malloc(row_width * cinfo.output_height);
-    memset(*output_buffer, 0, row_width * cinfo.output_height);
-    rowdata = *output_buffer;
+        *output_buffer = (unsigned char*)malloc(row_width * cinfo.output_height);
+        memset(*output_buffer, 0, row_width * cinfo.output_height);
+        rowdata = *output_buffer;
 
-    while (cinfo.output_scanline < cinfo.output_height) {
-        jpeg_read_scanlines(&cinfo, buffer, 1);
+        while (cinfo.output_scanline < cinfo.output_height) {
+            jpeg_read_scanlines(&cinfo, buffer, 1);
 
-        memcpy(rowdata, *buffer, row_width);
-        rowdata += row_width;
+            memcpy(rowdata, *buffer, row_width);
+            rowdata += row_width;
+        }
+
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+    } catch(std::exception& e) {
+        std::cerr<<e.what()<<std::endl;
+        fclose(input_file);
+        return -1;
     }
-
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
     fclose(input_file);
 
     return 0;

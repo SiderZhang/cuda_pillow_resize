@@ -8,7 +8,9 @@ link_directories(${CMAKE_SOURCE_DIR}/lib)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 #set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 
-#add_library(CUDAHelloWorld SHARED main.cu)
+#add_library(CUDAHelloWorld SHARED main.cu
+#        jpeg.cu
+#        jpeg.h)
 add_executable(CUDAHelloWorld main.cu
         jpeg.cu
     jpeg.h)
