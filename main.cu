@@ -23,13 +23,118 @@ typedef unsigned char       UINT8, *PUINT8;
 typedef unsigned short      UINT16, *PUINT16;
 typedef unsigned int        UINT32, *PUINT32;
 
+#define LANZOS_INTERPOLATION 1
+#define BILINEAR_INTERPOLATION 2
+#define BICUBIC_INTERPOLATION 3
+#define BOX_INTERPOLATION 4
+#define HAMMING_INTERPOLATION 5
+
+struct filter {
+    double (*filter)(double x);
+    double support;
+};
+
+__device__ __forceinline__ double
+box_filter(double x) {
+    if (x > -0.5 && x <= 0.5) {
+        return 1.0;
+    }
+    return 0.0;
+}
+
+__device__ double
+bilinear_filter(double x) {
+    if (x < 0.0) {
+        x = -x;
+    }
+    if (x < 1.0) {
+        return 1.0 - x;
+    }
+    return 0.0;
+}
+
+__device__ double
+hamming_filter(double x) {
+    if (x < 0.0) {
+        x = -x;
+    }
+    if (x == 0.0) {
+        return 1.0;
+    }
+    if (x >= 1.0) {
+        return 0.0;
+    }
+    x = x * M_PI;
+    return sin(x) / x * (0.54f + 0.46f * cos(x));
+}
+
+__device__ double
+bicubic_filter(double x) {
+    /* https://en.wikipedia.org/wiki/Bicubic_interpolation#Bicubic_convolution_algorithm
+     */
+#define a -0.5
+    if (x < 0.0) {
+        x = -x;
+    }
+    if (x < 1.0) {
+        return ((a + 2.0) * x - (a + 3.0)) * x * x + 1;
+    }
+    if (x < 2.0) {
+        return (((x - 5) * x + 8) * x - 4) * a;
+    }
+    return 0.0;
+#undef a
+}
+
+__device__ __forceinline__ double
+sinc_filter(double x) {
+    if (x == 0.0) {
+        return 1.0;
+    }
+    x = x * M_PI;
+    return sin(x) / x;
+}
+
+__device__ __forceinline__ double
+lanczos_filter(double x) {
+    /* truncated sinc */
+    if (-3.0 <= x && x < 3.0) {
+        return sinc_filter(x) * sinc_filter(x / 3);
+    }
+    return 0.0;
+}
+
+
+__device__ static struct filter BOX_D = {box_filter, 0.5};
+__device__ static struct filter BILINEAR_D = {bilinear_filter, 1.0};
+__device__ static struct filter HAMMING_D = {hamming_filter, 1.0};
+__device__ static struct filter BICUBIC_D = {bicubic_filter, 2.0};
+__device__ static struct filter LANCZOS_D = {lanczos_filter, 3.0};
+
+static struct filter BOX_H = {box_filter, 0.5};
+static struct filter BILINEAR_H = {bilinear_filter, 1.0};
+static struct filter HAMMING_H = {hamming_filter, 1.0};
+static struct filter BICUBIC_H = {bicubic_filter, 2.0};
+static struct filter LANCZOS_H = {lanczos_filter, 3.0};
+
+__global__ void test(int step, int* boundsp, int size) {
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+
+    printf("step: %d, id: %d, bound: %d\n", step, id, boundsp[id]);
+}
+
+
 __global__ void coeffs(int inSize, int in0, int in1,
-                       int outSize, int *boundsp, double *kkp) {
+                       int outSize, int *boundsp, double *kkp, int interpolation_mode) {
     double scale, filterscale;
     double center, ww, ss;
     int x, ksize, xmin, xmax;
     int *bounds;
     double *kk, *k;
+
 
     /* prepare for horizontal stretch */
     filterscale = scale = (double)(in1 - in0) / outSize;
@@ -38,7 +143,31 @@ __global__ void coeffs(int inSize, int in0, int in1,
     }
 
     /* determine support size (length of resampling filter) */
-    double support = 1.0 * filterscale;
+    struct filter *filterp = NULL;
+
+    switch (interpolation_mode){
+        case 1:
+            filterp = &LANCZOS_D;
+            break;
+        case 2:
+            filterp = &BILINEAR_D;
+            break;
+        case 3:
+            filterp = &BICUBIC_D;
+            break;
+        case 4:
+            filterp = &BOX_D;
+            break;
+        case 5:
+            filterp = &HAMMING_D;
+            break;
+        default:
+            printf("unsupported interpolation mode %d", interpolation_mode);
+            return;
+    }
+
+    double support = filterp->support * filterscale;
+//    double support = supportFacter * filterscale;
 
     /* maximum number of coeffs */
     ksize = (int)ceil(support) * 2 + 1;
@@ -76,18 +205,21 @@ __global__ void coeffs(int inSize, int in0, int in1,
         xmax -= xmin;
         k = &kk[xx * ksize];
         for (x = 0; x < xmax; x++) {
-            double filteringX = (x + xmin - center + 0.5) * ss;
 
-            double w = 0;//filterp->filter((x + xmin - center + 0.5) * ss);
-
-            if (filteringX < 0.0) {
-                filteringX = -filteringX;
-            }
-            if (filteringX < 1.0) {
-                w = 1.0 - filteringX;
-            } else {
-                w = 0.0;
-            }
+//            double filteringX = (x + xmin - center + 0.5) * ss;
+//
+//            double w = 0;//filterp->filter((x + xmin - center + 0.5) * ss);
+//
+//            if (filteringX < 0.0) {
+//                filteringX = -filteringX;
+//            }
+//            if (filteringX < 1.0) {
+//                w = 1.0 - filteringX;
+//            } else {
+//                w = 0.0;
+//            }
+            double w = filterp->filter((x + xmin - center + 0.5) * ss);
+//            double w = pFilterFunc((x + xmin - center + 0.5) * ss);
 
             k[x] = w;
             ww += w;
@@ -108,8 +240,9 @@ __global__ void coeffs(int inSize, int in0, int in1,
 }
 
 
-__global__ void normalize_coeffs(int outSize, int ksize, double *prekk) {
+__global__ void normalize_coeffs(unsigned int outSize, int ksize, double *prekk) {
     INT32 *kk;
+
 
     // use the same buffer for normalized coefficients
     kk = (INT32 *)prekk;
@@ -142,7 +275,7 @@ __global__ void shift_ysize(int *boundsp, int ysize) {
     }
 }
 
-__global__ void build_result_horiz(int srcXsize, int channelCount, int xsize, int ysize,
+__global__ void build_result_horiz(unsigned int srcXsize, unsigned int channelCount, unsigned int xsize, unsigned int ysize,
                                    unsigned char* input, unsigned char* output, int ksize, int *bounds, double *prekk, unsigned char* _lookups) {
     unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
     if (_id >= xsize * ysize) {
@@ -163,6 +296,10 @@ __global__ void build_result_horiz(int srcXsize, int channelCount, int xsize, in
         ss0 = ss1 = ss2 = 1 << (PRECISION_BITS - 1);
 
         for (int x = 0; x < xmax; x++) {
+//            int s = yy * srcXsize * channelCount + (x + xmin) * channelCount;
+//            if (s < 0 || s >= srcXsize * ysize * channelCount) {
+//                printf("invalid index: %d, %d, %d, %d, %d, %d\n", yy, channelCount, x, xmax, xmin, s);
+//            }
 
             ss0 += ((UINT8) input[yy * srcXsize * channelCount + (x + xmin) * channelCount + 0]) *
                    k[x];
@@ -183,7 +320,7 @@ __global__ void build_result_horiz(int srcXsize, int channelCount, int xsize, in
     }
 }
 
-__global__ void build_result_vert(int srcXsize, int channelCount, int xsize, int ysize,
+__global__ void build_result_vert(unsigned int srcXsize, unsigned int channelCount, unsigned int xsize, unsigned int ysize,
                                   unsigned char* input, unsigned char* output, int ksize, int *bounds, double *prekk, unsigned char* _lookups) {
     unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
     if (_id >= xsize * ysize) {
@@ -218,58 +355,26 @@ __global__ void build_result_vert(int srcXsize, int channelCount, int xsize, int
     }
 }
 
-int *bounds_horiz_d;
-double *kk_horiz_d;
-int ksize_horiz;
-
-int  *bounds_vert_d;
-double *kk_vert_d;
-int ksize_vert;
-
-void coffes(unsigned int im_xsize, unsigned int im_ysize, int xsize, int ysize) {
-
-    float box[4] = {0, 0, 1.0f * im_xsize, 1.0f * im_ysize};
-
-    double filterscale_horiz = (double)(box[2] - box[0]) / xsize;
-    if (filterscale_horiz < 1.0) {
-        filterscale_horiz = 1.0;
+float* corp(float* src, unsigned int input_size, unsigned int corp_size, unsigned int channels){
+    float* target;
+    cudaMalloc(&target, corp_size * corp_size * channels * sizeof(float));
+    unsigned int left = (input_size - corp_size) / 2;
+    unsigned int top = (input_size - corp_size) / 2;
+    for (int i = 0;i < corp_size;i++) {
+        unsigned int src_start = left + input_size * (i + top);
+        unsigned int dest_start = corp_size * i;
+        cudaMemcpy(&target[dest_start + corp_size * corp_size * 0], &src[src_start + input_size * input_size * 0], corp_size * sizeof(float), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(&target[dest_start + corp_size * corp_size * 1], &src[src_start + input_size * input_size * 1], corp_size * sizeof(float), cudaMemcpyDeviceToDevice);
+        cudaMemcpy(&target[dest_start + corp_size * corp_size * 2], &src[src_start + input_size * input_size * 2], corp_size * sizeof(float), cudaMemcpyDeviceToDevice);
     }
-    ksize_horiz = (int)ceil(filterscale_horiz) * 2 + 1;
-
-    cudaMalloc(&kk_horiz_d, xsize * ksize_horiz * sizeof(double));
-    cudaMalloc(&bounds_horiz_d, xsize * 2 * sizeof(int));
-
-    coeffs<<<256, 256>>>(im_xsize,
-                        box[0],
-                        box[2],
-                        xsize,
-                        bounds_horiz_d,
-                        kk_horiz_d);
-
-    normalize_coeffs<<<xsize, ksize_horiz>>>(xsize, ksize_horiz, kk_horiz_d);
-
-    double filterscale_vert = (double)(box[3] - box[1]) / ysize;
-    if (filterscale_vert < 1.0) {
-        filterscale_vert = 1.0;
-    }
-    ksize_vert = (int)ceil(filterscale_vert) * 2 + 1;
-    cudaMalloc(&kk_vert_d, ysize * ksize_vert * sizeof(double));
-    cudaMalloc(&bounds_vert_d, ysize * 2 * sizeof(int));
-
-    coeffs<<<256, 256>>>(im_ysize,
-                        box[1],
-                        box[3],
-                        ysize,
-                        bounds_vert_d,
-                        kk_vert_d);
-
-    normalize_coeffs<<<ysize, ksize_vert>>>(ysize, ksize_vert, kk_vert_d);
-
-    shift_ysize<<<256, 256>>>(bounds_vert_d, ysize);
+    cudaFree(src);
+    return target;
 }
 
-__global__ void rescale_normalize_d(unsigned char *data, float* result, int xsize, int ysize) {
+__global__ void rescale_normalize_d(unsigned char *data, float* result, unsigned int xsize, unsigned int ysize,
+                                    float mean0, float mean1, float mean2, float std0, float std1, float std2) {
     unsigned int _id = blockIdx.x * blockDim.x + threadIdx.x;
+
 
     if (_id >= xsize * ysize) {
         return;
@@ -282,9 +387,9 @@ __global__ void rescale_normalize_d(unsigned char *data, float* result, int xsiz
         double pixel2 = ((double)data[id * 3 + 2]) * 1.0 / 255;
 
         // normalize
-        pixel0 = (pixel0 - 0.5) / 0.5;
-        pixel1 = (pixel1 - 0.5) / 0.5;
-        pixel2 = (pixel2 - 0.5) / 0.5;
+        pixel0 = (pixel0 - mean0) / std0;
+        pixel1 = (pixel1 - mean1) / std1;
+        pixel2 = (pixel2 - mean2) / std2;
 
         // transpose
         result[id + 0 * xsize * ysize] = (float)pixel0;
@@ -372,24 +477,122 @@ UINT8 lookups_h[1280] = {
         255, 255, 255, 255, 255,
 };
 
-extern "C" int resize(const char* filename, std::string& outputFilename, unsigned int target_xsize, unsigned int target_ysize) {
-    unsigned char *image_pixel_data = NULL;
-    unsigned int source_xsize;
-    unsigned int source_ysize;
-    unsigned int channels;
+float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int target_xsize, unsigned int target_ysize, unsigned int channels, int interpolation_mode, float* mean, float* std) {
+    int *bounds_horiz_d;
+    double *kk_horiz_d;
+    int ksize_horiz;
 
-    int ret = read_jpeg_file(filename, &image_pixel_data, &source_xsize, &source_ysize, &channels);
-    if (ret != 0) {
-        std::cerr<<"failed to load file" << filename <<std::endl;
-        return -1;
+    int  *bounds_vert_d;
+    double *kk_vert_d;
+    int ksize_vert;
+
+    float box[4] = {0, 0, 1.0f * source_xsize, 1.0f * source_ysize};
+
+    double support;
+    struct filter *filterp;
+
+    switch (interpolation_mode){
+        case 1:
+            filterp = &LANCZOS_H;
+            break;
+        case 2:
+            filterp = &BILINEAR_H;
+            break;
+        case 3:
+            filterp = &BICUBIC_H;
+            break;
+        case 4:
+            filterp = &BOX_H;
+            break;
+        case 5:
+            filterp = &HAMMING_H;
+            break;
+        default:
+            printf("unsupported interpolation mode %d", interpolation_mode);
+            return NULL;
     }
 
-    coffes(source_xsize, source_ysize, target_xsize, target_ysize);
+    double filterscale_horiz = (double)(box[2] - box[0]) / target_xsize;
+    if (filterscale_horiz < 1.0) {
+        filterscale_horiz = 1.0;
+    }
+    ksize_horiz = (int)ceil(filterscale_horiz * filterp->support) * 2 + 1;
+    cudaDeviceSynchronize();
 
-    unsigned char* input;
-    cudaMalloc(&input, source_xsize * source_ysize * channels * sizeof(unsigned char));
+    cudaMalloc(&kk_horiz_d, target_xsize * ksize_horiz * sizeof(double));
+    cudaMalloc(&bounds_horiz_d, target_xsize * 2 * sizeof(int));
 
-    cudaMemcpy(input, image_pixel_data, source_xsize * source_ysize * channels * sizeof(unsigned char), cudaMemcpyHostToDevice);
+    coeffs<<<256, 256>>>(source_xsize,
+                         box[0],
+                         box[2],
+                         target_xsize,
+                         bounds_horiz_d,
+                         kk_horiz_d,
+                         interpolation_mode);
+
+    cudaDeviceSynchronize();
+    cudaError_t error =  cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    normalize_coeffs<<<target_xsize, ksize_horiz>>>(target_xsize, ksize_horiz, kk_horiz_d);
+
+    cudaDeviceSynchronize();
+    error =  cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    double filterscale_vert = (double)(box[3] - box[1]) / target_ysize;
+    if (filterscale_vert < 1.0) {
+        filterscale_vert = 1.0;
+    }
+    ksize_vert = (int)ceil(filterscale_vert * filterp->support) * 2 + 1;
+    cudaMalloc(&kk_vert_d, target_ysize * ksize_vert * sizeof(double));
+    cudaMalloc(&bounds_vert_d, target_ysize * 2 * sizeof(int));
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    coeffs<<<256, 256>>>(source_ysize,
+                         box[1],
+                         box[3],
+                         target_ysize,
+                         bounds_vert_d,
+                         kk_vert_d,
+                         interpolation_mode);
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    normalize_coeffs<<<target_ysize, ksize_vert>>>(target_ysize, ksize_vert, kk_vert_d);
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    shift_ysize<<<256, 256>>>(bounds_vert_d, target_ysize);
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
 
     unsigned char* temp;
     cudaMalloc(&temp, target_xsize * source_ysize * channels * sizeof(unsigned char));
@@ -402,38 +605,157 @@ extern "C" int resize(const char* filename, std::string& outputFilename, unsigne
     cudaMemcpy(looksup_d, lookups_h, 1280 * sizeof(unsigned char), cudaMemcpyHostToDevice);
 
     build_result_horiz<<<256, 1024>>>(source_xsize, channels, target_xsize, source_ysize, input, temp, ksize_horiz, bounds_horiz_d, kk_horiz_d, looksup_d);
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
     build_result_vert<<<256, 1024>>>(target_xsize, channels, target_xsize, target_ysize, temp, result_pixel_data_d, ksize_vert, bounds_vert_d, kk_vert_d, looksup_d);
+
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
 
     float* normalized_pixel_data_d;
     cudaMalloc(&normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(float));
 
-    rescale_normalize_d<<<256, 1024>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize);
+    rescale_normalize_d<<<256, 1024>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize,
+                                       mean[0], mean[1], mean[2], std[0], std[1], std[2]);
 
-    std::vector<float> v;
-    v.resize(target_xsize * target_ysize * 3);
-    float* normalized_pixel_data = (float*) calloc(target_xsize * target_ysize, channels * sizeof(float));
-    cudaMemcpy(&v[0], normalized_pixel_data_d, target_xsize * target_ysize * channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+    cudaFree(temp);
+    cudaFree(looksup_d);
+    cudaFree(result_pixel_data_d);
 
     cudaFree(bounds_horiz_d);
     cudaFree(kk_horiz_d);
     cudaFree(bounds_vert_d);
     cudaFree(kk_vert_d);
 
-    cudaFree(input);
-    cudaFree(temp);
-    cudaFree(looksup_d);
-    cudaFree(result_pixel_data_d);
+    cudaDeviceSynchronize();
+
+    error = cudaGetLastError();
+    if (error != cudaError_t::cudaSuccess) {
+        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        return NULL;
+    }
+
+    return normalized_pixel_data_d;
+}
+
+float* vit_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int vit_size, unsigned int channels) {
+    float mean[3] = {0.5, 0.5, 0.5};
+    float std[3] = {0.5, 0.5, 0.5};
+    int interpolation_mode = BILINEAR_INTERPOLATION;
+    return image_preprocess(input, source_xsize, source_ysize, vit_size, vit_size, channels, interpolation_mode, mean, std);
+}
+
+float* deit_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int vit_size, unsigned int corp_size, unsigned int channels) {
+    float mean[3] = {0.485, 0.456, 0.406};
+    float std[3] = {0.229, 0.224, 0.225};
+    int interpolation_mode = BICUBIC_INTERPOLATION;
+    float* resizedImage = image_preprocess(input, source_xsize, source_ysize, vit_size, vit_size, channels, interpolation_mode, mean, std);
+
+    return corp(resizedImage, vit_size, corp_size, channels);
+}
+
+float* vis_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int vit_size, unsigned int channels) {
+    float mean[3] = {0.48145466, 0.4578275, 0.40821073};
+    float std[3] = {0.26862954, 0.26130258, 0.27577711};
+    int interpolation_mode = BICUBIC_INTERPOLATION;
+    float* resizedImage = image_preprocess(input, source_xsize, source_ysize, vit_size, vit_size, channels, interpolation_mode, mean, std);
+    return resizedImage;
+}
+
+int resize(const char* filename, std::string& outputFilename, unsigned int target_xsize, unsigned int target_ysize) {
+    unsigned char *image_pixel_data = NULL;
+    unsigned int source_xsize;
+    unsigned int source_ysize;
+    unsigned int channels;
+
+    int ret = read_jpeg_file(filename, &image_pixel_data, &source_xsize, &source_ysize, &channels);
+    if (ret != 0) {
+        std::cerr<<"failed to load file" << filename <<std::endl;
+        return -1;
+    }
+
+    unsigned char* input;
+    cudaMalloc(&input, source_xsize * source_ysize * channels * sizeof(unsigned char));
+    cudaMemcpy(input, image_pixel_data, source_xsize * source_ysize * channels * sizeof(unsigned char), cudaMemcpyHostToDevice);
+
+    unsigned int vit_size = 256;
+    unsigned int corp_size = 224;
+    float* normalized_pixel_data_d = deit_preprocess(input, source_xsize, source_ysize, vit_size, corp_size, channels);
+    std::vector<float> deit_result;
+    deit_result.resize(corp_size * corp_size * 3);
+    cudaMemcpy(&deit_result[0], normalized_pixel_data_d, corp_size * corp_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
     cudaFree(normalized_pixel_data_d);
 
+    std::cout<<"Channel 1"<<std::endl;
+    for (int i = 0;i < corp_size;i++) {
+        for (int j = 0;j < corp_size;j++) {
+            int index = j + i * corp_size + corp_size * corp_size * 0;
+            std::cout<<deit_result[index]<<", ";
+        }
+        std::cout<<std::endl;
+    }
+
+//    unsigned int vit_size = 224;
+//    float* normalized_pixel_data_d = vis_preprocess(input, source_xsize, source_ysize, vit_size, channels);
+//    std::vector<float> vit_result;
+//    vit_result.resize(vit_size * vit_size * 3);
+//    cudaMemcpy(&vit_result[0], normalized_pixel_data_d, vit_size * vit_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
+//    cudaFree(normalized_pixel_data_d);
+//
+//    std::cout<<"Channel 1"<<std::endl;
+//    for (int i = 0;i < vit_size;i++) {
+//        for (int j = 0;j < vit_size;j++) {
+//            int index = j + i * vit_size + vit_size * vit_size * 0;
+//            std::cout<<vit_result[index]<<", ";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+//    std::cout<<"Channel 2"<<std::endl;
+//    for (int i = 0;i < vit_size;i++) {
+//        for (int j = 0;j < vit_size;j++) {
+//            int index = j + i * vit_size + vit_size * vit_size * 1;
+//            std::cout<<vit_result[index]<<", ";
+//        }
+//        std::cout<<std::endl;
+//    }
+//
+//    std::cout<<"Channel 3"<<std::endl;
+//    for (int i = 0;i < vit_size;i++) {
+//        for (int j = 0;j < vit_size;j++) {
+//            int index = j + i * vit_size + vit_size * vit_size * 2;
+//            std::cout<<vit_result[index]<<", ";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+
+    cudaFree(input);
     cudaDeviceSynchronize();
 
 
-    const std::vector<unsigned long> leshape11{3, target_xsize, target_ysize};
-
-    const npy::npy_data<float> data11{v, leshape11, false};
-    std::string tmpFileName = outputFilename + ".tmp";
-    write_npy(tmpFileName, data11);
-    rename(tmpFileName.c_str(), outputFilename.c_str());
+//    const std::vector<unsigned long> leshape11{3, target_xsize, target_ysize};
+//
+//    const npy::npy_data<float> data11{vit_result, leshape11, false};
+//    std::string tmpFileName = outputFilename + ".tmp";
+//    write_npy(tmpFileName, data11);
+//    rename(tmpFileName.c_str(), outputFilename.c_str());
 
     return 0;
 }
@@ -482,38 +804,41 @@ int main(int argc, char *argv[]) {
     unsigned int xsize = std::atoi(argv[3]);
     unsigned int ysize = std::atoi(argv[4]);
 
-    while (true) {
-        std::vector<std::string> fileNames;
-        readDir(dirPath, fileNames);
+//    while (true) {
+//        std::vector<std::string> fileNames;
+//        readDir(dirPath, fileNames);
+//
+//        timeb t;
+//        ftime(&t);
+//        long t1 = t.time * 1000 + t.millitm;
+//        int count = 0;
+//        for (auto iter = fileNames.begin();iter != fileNames.end();iter++) {
+//            std::string inputFilename22 = std::string(dirPath) + "/" + *iter;
+//            std::string outputFilename22 = std::string(outputFilename) + "/" + *iter + ".npy";
+//
+//            FILE *output_file_test;
+//            if ((output_file_test = fopen(outputFilename22.c_str(), "rb")) != NULL) {
+//                std::cerr<<"npy file exists <" << outputFilename22 << ">" << " skip it" <<std::endl;
+//                fclose(output_file_test);
+//                continue;
+//            }
+//
+//            int ret = resize(inputFilename22.c_str(), outputFilename22, xsize, ysize);
+//            if (ret != 0)
+//                continue;
+//
+//            count++;
+//        }
+//        ftime(&t);
+//        long t2 = t.time * 1000 + t.millitm;
+//
+//        if (count != 0) {
+//            std::cout << "process iamges " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
+//        }
+//        usleep(5000);
+//    }
 
-        timeb t;
-        ftime(&t);
-        long t1 = t.time * 1000 + t.millitm;
-        int count = 0;
-        for (auto iter = fileNames.begin();iter != fileNames.end();iter++) {
-            std::string inputFilename22 = std::string(dirPath) + "/" + *iter;
-            std::string outputFilename22 = std::string(outputFilename) + "/" + *iter + ".npy";
-
-            FILE *output_file_test;
-            if ((output_file_test = fopen(outputFilename22.c_str(), "rb")) != NULL) {
-                std::cerr<<"npy file exists <" << outputFilename22 << ">" << " skip it" <<std::endl;
-                fclose(output_file_test);
-                continue;
-            }
-
-            int ret = resize(inputFilename22.c_str(), outputFilename22, xsize, ysize);
-            if (ret != 0)
-                continue;
-
-            count++;
-        }
-        ftime(&t);
-        long t2 = t.time * 1000 + t.millitm;
-
-        if (count != 0) {
-            std::cout << "process iamges " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
-        }
-        usleep(5000);
-    }
+    std::string output = std::string("hello.npy");
+    resize("/home/siderzhang/test.jpg", output, 224, 224);
     return 0;
 }
