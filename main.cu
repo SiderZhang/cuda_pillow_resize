@@ -10,8 +10,11 @@
 #include "sys/stat.h"
 #include <algorithm>
 
+#include "libcuda.h"
+
 #include <sys/timeb.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #define PRECISION_BITS (32 - 8 - 2)
 
@@ -476,7 +479,6 @@ UINT8 lookups_h[1280] = {
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255,
 };
-
 float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int target_xsize, unsigned int target_ysize, unsigned int channels, int interpolation_mode, float* mean, float* std) {
     int *bounds_horiz_d;
     double *kk_horiz_d;
@@ -517,7 +519,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
         filterscale_horiz = 1.0;
     }
     ksize_horiz = (int)ceil(filterscale_horiz * filterp->support) * 2 + 1;
-    cudaDeviceSynchronize();
 
     cudaMalloc(&kk_horiz_d, target_xsize * ksize_horiz * sizeof(double));
     cudaMalloc(&bounds_horiz_d, target_xsize * 2 * sizeof(int));
@@ -530,7 +531,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
                          kk_horiz_d,
                          interpolation_mode);
 
-    cudaDeviceSynchronize();
     cudaError_t error =  cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -539,7 +539,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     normalize_coeffs<<<target_xsize, ksize_horiz>>>(target_xsize, ksize_horiz, kk_horiz_d);
 
-    cudaDeviceSynchronize();
     error =  cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -554,7 +553,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     cudaMalloc(&kk_vert_d, target_ysize * ksize_vert * sizeof(double));
     cudaMalloc(&bounds_vert_d, target_ysize * 2 * sizeof(int));
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -569,7 +567,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
                          kk_vert_d,
                          interpolation_mode);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -578,7 +575,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     normalize_coeffs<<<target_ysize, ksize_vert>>>(target_ysize, ksize_vert, kk_vert_d);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -587,7 +583,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     shift_ysize<<<256, 256>>>(bounds_vert_d, target_ysize);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -606,7 +601,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     build_result_horiz<<<256, 1024>>>(source_xsize, channels, target_xsize, source_ysize, input, temp, ksize_horiz, bounds_horiz_d, kk_horiz_d, looksup_d);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -615,7 +609,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     build_result_vert<<<256, 1024>>>(target_xsize, channels, target_xsize, target_ysize, temp, result_pixel_data_d, ksize_vert, bounds_vert_d, kk_vert_d, looksup_d);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
@@ -628,12 +621,12 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     rescale_normalize_d<<<256, 1024>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize,
                                        mean[0], mean[1], mean[2], std[0], std[1], std[2]);
 
-    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
         std::cerr<<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
+
     cudaFree(temp);
     cudaFree(looksup_d);
     cudaFree(result_pixel_data_d);
@@ -642,8 +635,6 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     cudaFree(kk_horiz_d);
     cudaFree(bounds_vert_d);
     cudaFree(kk_vert_d);
-
-    cudaDeviceSynchronize();
 
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
@@ -678,84 +669,62 @@ float* vis_preprocess(unsigned char* input, unsigned int source_xsize, unsigned 
     return resizedImage;
 }
 
-int resize(const char* filename, std::string& outputFilename, unsigned int target_xsize, unsigned int target_ysize) {
-    unsigned char *image_pixel_data = NULL;
+void onImageRead(unsigned char* input, unsigned char **output_buffer, unsigned int width, unsigned int height, unsigned int channels){
+    cudaMalloc(output_buffer, width * height * channels * sizeof(unsigned char));
+    cudaMemcpy(*output_buffer, input, width * height * channels * sizeof(unsigned char), cudaMemcpyHostToDevice);
+}
+
+void to_npy(const char* filename, std::string& outputFilename, float* array, unsigned int size, unsigned int channels) {
+    const std::vector<unsigned long int> leshape11{3, size, size};
+    std::vector<float> deit_vec(array, array + size * size * channels);
+//    std::vector<float> deit_vec;
+    npy::npy_data<float> data11;
+    data11.data = deit_vec;
+    data11.shape = leshape11;
+    data11.fortran_order = false;
+    std::string tmpFileName = outputFilename + ".tmp";
+    write_npy(tmpFileName, data11);
+    rename(tmpFileName.c_str(), outputFilename.c_str());
+}
+
+
+int image_process(const char* filename, std::string& output_filename_prefix, unsigned int vit_size, unsigned int vis_size, unsigned int deit_size, unsigned int corp_size) {
     unsigned int source_xsize;
     unsigned int source_ysize;
     unsigned int channels;
 
-    int ret = read_jpeg_file(filename, &image_pixel_data, &source_xsize, &source_ysize, &channels);
-    if (ret != 0) {
-        std::cerr<<"failed to load file" << filename <<std::endl;
-        return -1;
-    }
-
     unsigned char* input;
-    cudaMalloc(&input, source_xsize * source_ysize * channels * sizeof(unsigned char));
-    cudaMemcpy(input, image_pixel_data, source_xsize * source_ysize * channels * sizeof(unsigned char), cudaMemcpyHostToDevice);
+    read2(filename, &input, source_xsize, source_ysize, channels);
 
-    unsigned int vit_size = 256;
-    unsigned int corp_size = 224;
-    float* normalized_pixel_data_d = deit_preprocess(input, source_xsize, source_ysize, vit_size, corp_size, channels);
-    std::vector<float> deit_result;
-    deit_result.resize(corp_size * corp_size * 3);
-    cudaMemcpy(&deit_result[0], normalized_pixel_data_d, corp_size * corp_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(normalized_pixel_data_d);
+    float* deit_pixel_data_d = deit_preprocess(input, source_xsize, source_ysize, deit_size, corp_size, channels);
+    float* deit_result_h;
+    deit_result_h = (float*)malloc(corp_size * corp_size * channels * sizeof(float));
+    cudaMemcpy(deit_result_h, deit_pixel_data_d, corp_size * corp_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaFree(deit_pixel_data_d);
+    std::string deit_output_filename = output_filename_prefix + "_deit.npy";
+    to_npy(filename, deit_output_filename, deit_result_h, corp_size, channels);
+    free(deit_result_h);
 
-    std::cout<<"Channel 1"<<std::endl;
-    for (int i = 0;i < corp_size;i++) {
-        for (int j = 0;j < corp_size;j++) {
-            int index = j + i * corp_size + corp_size * corp_size * 0;
-            std::cout<<deit_result[index]<<", ";
-        }
-        std::cout<<std::endl;
-    }
+    float* vis_pixel_data_d = vis_preprocess(input, source_xsize, source_ysize, vis_size, channels);
+    float* vis_reuslt_h;
+    vis_reuslt_h = (float*)malloc(vis_size * vis_size * channels * sizeof(float));
+    cudaMemcpy(vis_reuslt_h, vis_pixel_data_d, vis_size * vis_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaFree(vis_pixel_data_d);
+    std::string vis_output_filename = output_filename_prefix + "_vis.npy";
+    to_npy(filename, vis_output_filename, vis_reuslt_h, vis_size, channels);
+    free(vis_reuslt_h);
 
-//    unsigned int vit_size = 224;
-//    float* normalized_pixel_data_d = vis_preprocess(input, source_xsize, source_ysize, vit_size, channels);
-//    std::vector<float> vit_result;
-//    vit_result.resize(vit_size * vit_size * 3);
-//    cudaMemcpy(&vit_result[0], normalized_pixel_data_d, vit_size * vit_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
-//    cudaFree(normalized_pixel_data_d);
-//
-//    std::cout<<"Channel 1"<<std::endl;
-//    for (int i = 0;i < vit_size;i++) {
-//        for (int j = 0;j < vit_size;j++) {
-//            int index = j + i * vit_size + vit_size * vit_size * 0;
-//            std::cout<<vit_result[index]<<", ";
-//        }
-//        std::cout<<std::endl;
-//    }
-
-//    std::cout<<"Channel 2"<<std::endl;
-//    for (int i = 0;i < vit_size;i++) {
-//        for (int j = 0;j < vit_size;j++) {
-//            int index = j + i * vit_size + vit_size * vit_size * 1;
-//            std::cout<<vit_result[index]<<", ";
-//        }
-//        std::cout<<std::endl;
-//    }
-//
-//    std::cout<<"Channel 3"<<std::endl;
-//    for (int i = 0;i < vit_size;i++) {
-//        for (int j = 0;j < vit_size;j++) {
-//            int index = j + i * vit_size + vit_size * vit_size * 2;
-//            std::cout<<vit_result[index]<<", ";
-//        }
-//        std::cout<<std::endl;
-//    }
-
+    float* vit_pixel_data_d = vit_preprocess(input, source_xsize, source_ysize, vit_size, channels);
+    float* vit_reuslt_h;
+    vit_reuslt_h = (float*)malloc(vit_size * vit_size * channels * sizeof(float));
+    cudaMemcpy(vit_reuslt_h, vit_pixel_data_d, vit_size * vit_size * channels * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaFree(vit_pixel_data_d);
+    std::string vit_output_filename = output_filename_prefix + "_vit.npy";
+    to_npy(filename, vit_output_filename, vit_reuslt_h, vit_size, channels);
+    free(vit_reuslt_h);
 
     cudaFree(input);
     cudaDeviceSynchronize();
-
-
-//    const std::vector<unsigned long> leshape11{3, target_xsize, target_ysize};
-//
-//    const npy::npy_data<float> data11{vit_result, leshape11, false};
-//    std::string tmpFileName = outputFilename + ".tmp";
-//    write_npy(tmpFileName, data11);
-//    rename(tmpFileName.c_str(), outputFilename.c_str());
 
     return 0;
 }
@@ -794,16 +763,17 @@ void readDir(const char* dirPath, std::vector<std::string>& filenames) {
     closedir(pDir);
 }
 
-int main(int argc, char *argv[]) {
-    if (argc < 4) {
-        std::cerr<<"arguments: dirPath width height outputfilename"<<std::endl;
-        return -1;
-    }
-    char* dirPath = argv[1];
-    char* outputFilename = argv[2];
-    unsigned int xsize = std::atoi(argv[3]);
-    unsigned int ysize = std::atoi(argv[4]);
 
+int main(int argc, char *argv[]) {
+//    if (argc < 4) {
+//        std::cerr<<"arguments: dirPath width height outputfilename"<<std::endl;
+//        return -1;
+//    }
+//    char* dirPath = argv[1];
+//    char* outputFilename = argv[2];
+//    unsigned int xsize = std::atoi(argv[3]);
+//    unsigned int ysize = std::atoi(argv[4]);
+//
 //    while (true) {
 //        std::vector<std::string> fileNames;
 //        readDir(dirPath, fileNames);
@@ -823,7 +793,7 @@ int main(int argc, char *argv[]) {
 //                continue;
 //            }
 //
-//            int ret = resize(inputFilename22.c_str(), outputFilename22, xsize, ysize);
+//            int ret = image_process(inputFilename22.c_str(), outputFilename22, xsize, ysize);
 //            if (ret != 0)
 //                continue;
 //
@@ -838,7 +808,15 @@ int main(int argc, char *argv[]) {
 //        usleep(5000);
 //    }
 
-    std::string output = std::string("hello.npy");
-    resize("/home/siderzhang/test.jpg", output, 224, 224);
+//    unsigned char* data;
+//    read2("/home/siderzhang/file/9.jpg", &data);
+
+    if (argc < 1) {
+        std::cerr<<"arguments: input_filename"<<std::endl;
+        return -1;
+    }
+    const char* input_file = argv[1];
+    std::string output_filename_prefix = std::string("hello");
+    image_process(input_file, output_filename_prefix, 224, 224, 256, 224);
     return 0;
 }
