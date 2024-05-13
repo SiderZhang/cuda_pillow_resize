@@ -13,7 +13,8 @@ include_directories(/usr/include/opencv4 )
 #        jpeg.h)
 add_executable(CUDAHelloWorld main.cu
         jpeg.cu
-    jpeg.h)
+        jpeg.h
+        file.cu)
 add_subdirectory(cv)
 
 set_target_properties(CUDAHelloWorld

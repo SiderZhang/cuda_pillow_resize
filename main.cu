@@ -4,11 +4,7 @@
 #include "jpeg.h"
 #include <vector>
 #include <string.h>
-#include <dirent.h>
 #include "npy.h"
-#include "sys/types.h"
-#include "sys/stat.h"
-#include <algorithm>
 
 #include "libcuda.h"
 
@@ -658,6 +654,7 @@ float* deit_preprocess(unsigned char* input, unsigned int source_xsize, unsigned
     int interpolation_mode = BICUBIC_INTERPOLATION;
     float* resizedImage = image_preprocess(input, source_xsize, source_ysize, vit_size, vit_size, channels, interpolation_mode, mean, std);
 
+//    return resizedImage;
     return corp(resizedImage, vit_size, corp_size, channels);
 }
 
@@ -694,7 +691,10 @@ int image_process(const char* filename, std::string& output_filename_prefix, uns
     unsigned int channels;
 
     unsigned char* input;
-    read2(filename, &input, source_xsize, source_ysize, channels);
+    int ret = load_image_file(filename, &input, source_xsize, source_ysize, channels);
+    if (ret == -1) {
+        return -1;
+    }
 
     float* deit_pixel_data_d = deit_preprocess(input, source_xsize, source_ysize, deit_size, corp_size, channels);
     float* deit_result_h;
@@ -729,94 +729,56 @@ int image_process(const char* filename, std::string& output_filename_prefix, uns
     return 0;
 }
 
-void readDir(const char* dirPath, std::vector<std::string>& filenames) {
-    DIR *pDir;
-    struct dirent* ptr;
-    if(!(pDir = opendir(dirPath))){
-        std::cout<<"Folder doesn't Exist!"<<std::endl;
-        return;
-    }
-    struct stat s_buff;
-
-    while((ptr = readdir(pDir)) != nullptr) {
-        std::string fileName(ptr->d_name);
-        std::string path = std::string(dirPath) + "/" + fileName;
-
-        std::string extension = fileName.substr(fileName.find_last_of(".") + 1);
-        transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-
-        if (!extension.compare("jpg") == 0 && !extension.compare("jpeg") == 0) {
-            continue;
-        }
-
-        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0){
-            continue;
-        }
-
-        stat(path.c_str(), &s_buff);
-        if (!S_ISREG(s_buff.st_mode)) {
-            continue;
-        }
-
-        filenames.push_back(fileName);
-    }
-    closedir(pDir);
-}
-
-
 int main(int argc, char *argv[]) {
-//    if (argc < 4) {
-//        std::cerr<<"arguments: dirPath width height outputfilename"<<std::endl;
-//        return -1;
-//    }
-//    char* dirPath = argv[1];
-//    char* outputFilename = argv[2];
-//    unsigned int xsize = std::atoi(argv[3]);
-//    unsigned int ysize = std::atoi(argv[4]);
-//
-//    while (true) {
-//        std::vector<std::string> fileNames;
-//        readDir(dirPath, fileNames);
-//
-//        timeb t;
-//        ftime(&t);
-//        long t1 = t.time * 1000 + t.millitm;
-//        int count = 0;
-//        for (auto iter = fileNames.begin();iter != fileNames.end();iter++) {
-//            std::string inputFilename22 = std::string(dirPath) + "/" + *iter;
-//            std::string outputFilename22 = std::string(outputFilename) + "/" + *iter + ".npy";
-//
-//            FILE *output_file_test;
-//            if ((output_file_test = fopen(outputFilename22.c_str(), "rb")) != NULL) {
-//                std::cerr<<"npy file exists <" << outputFilename22 << ">" << " skip it" <<std::endl;
-//                fclose(output_file_test);
-//                continue;
-//            }
-//
-//            int ret = image_process(inputFilename22.c_str(), outputFilename22, xsize, ysize);
-//            if (ret != 0)
-//                continue;
-//
-//            count++;
-//        }
-//        ftime(&t);
-//        long t2 = t.time * 1000 + t.millitm;
-//
-//        if (count != 0) {
-//            std::cout << "process iamges " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
-//        }
-//        usleep(5000);
-//    }
+    if (argc < 2) {
+        std::cerr<<"arguments: input_dir output_dir"<<std::endl;
+        return -1;
+    }
+    char* input_dir = argv[1];
+    char* output_dir = argv[2];
+
+    while (true) {
+        std::vector<std::string> fileNames;
+        readDir(input_dir, fileNames);
+
+        timeb t;
+        ftime(&t);
+        long t1 = t.time * 1000 + t.millitm;
+        int count = 0;
+        for (auto iter = fileNames.begin();iter != fileNames.end();iter++) {
+            std::string input_file_abs_path = std::string(input_dir) + "/" + *iter;
+            std::string output_file_abs_path = std::string(output_dir) + "/" + *iter;
+
+            int ret = image_process(input_file_abs_path.c_str(), output_file_abs_path, 224, 224, 256, 224);
+            if (ret != 0)
+                continue;
+
+            ret = remove(input_file_abs_path.c_str());
+            if (ret != 0) {
+                std::cerr<<"failed to delete processed image file "<<input_file_abs_path.c_str()<<std::endl;
+                continue;
+            }
+
+            count++;
+        }
+        ftime(&t);
+        long t2 = t.time * 1000 + t.millitm;
+
+        if (count != 0) {
+            std::cout << "process images " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
+        }
+        usleep(50000);
+    }
 
 //    unsigned char* data;
 //    read2("/home/siderzhang/file/9.jpg", &data);
 
-    if (argc < 1) {
-        std::cerr<<"arguments: input_filename"<<std::endl;
-        return -1;
-    }
-    const char* input_file = argv[1];
-    std::string output_filename_prefix = std::string("hello");
-    image_process(input_file, output_filename_prefix, 224, 224, 256, 224);
-    return 0;
+//    if (argc < 1) {
+//        std::cerr<<"arguments: input_filename"<<std::endl;
+//        return -1;
+//    }
+//    const char* input_file = argv[1];
+//    std::string output_filename_prefix = std::string("hello");
+//    image_process(input_file, output_filename_prefix, 224, 224, 256, 256);
+//    return 0;
 }
