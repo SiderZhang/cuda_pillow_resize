@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <unistd.h>
 
 #include <algorithm>
 #include <dirent.h>
@@ -8,13 +9,24 @@
 
 using namespace std;
 
-void scanDir(const string& base_path, const string& dir_path, std::vector<std::string>& filenames) {
+void scanDir(const string& base_path, const string& dir_path, std::vector<std::string>& filenames, std::string output_path) {
     DIR *pDir;
     struct dirent* ptr;
     if(!(pDir = opendir(std::string(base_path).append(dir_path).c_str()))){
         std::cout<<"Folder doesn't Exist!"<<std::endl;
         return;
     }
+
+    std::string path_to_create = std::string(output_path).append(dir_path);
+    if (access(path_to_create.c_str(), F_OK) != 0) {
+        int ret = mkdir(path_to_create.c_str(), 0755);
+        if (ret != 0) {
+            if (ret != EEXIST) {
+                std::cerr<<"failed to make directory for file: " << std::string(output_path) << ";" << std::string(dir_path) << ";" << ret <<std::endl;
+            }
+        }
+    }
+
     struct stat s_buff;
 
     while((ptr = readdir(pDir)) != nullptr) {
@@ -37,20 +49,20 @@ void scanDir(const string& base_path, const string& dir_path, std::vector<std::s
         stat(abs_path.c_str(), &s_buff);
         if (S_ISREG(s_buff.st_mode)) {
             filenames.push_back(relative_path);
+
             continue;
         }
 
         if (S_ISDIR(s_buff.st_mode)) {
-            scanDir(base_path, relative_path, filenames);
+            scanDir(base_path, relative_path, filenames, output_path);
             continue;
         }
     }
     closedir(pDir);
 }
 
-void readDir(const char* dirPath, std::vector<std::string>& filenames) {
-
-    scanDir(std::string(dirPath), std::string(""), filenames);
+void readDir(const char* dirPath, std::vector<std::string>& filenames, std::string output_path) {
+    scanDir(std::string(dirPath), std::string(""), filenames, output_path);
 
 //    DIR *pDir;
 //    struct dirent* ptr;

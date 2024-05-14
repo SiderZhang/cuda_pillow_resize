@@ -1,7 +1,6 @@
 #include <iostream>
 #include <cmath>
 #include <stdio.h>
-#include "jpeg.h"
 #include <vector>
 #include <string.h>
 #include "npy.h"
@@ -11,6 +10,7 @@
 #include <sys/timeb.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #define PRECISION_BITS (32 - 8 - 2)
 
@@ -654,8 +654,8 @@ float* deit_preprocess(unsigned char* input, unsigned int source_xsize, unsigned
     int interpolation_mode = BICUBIC_INTERPOLATION;
     float* resizedImage = image_preprocess(input, source_xsize, source_ysize, vit_size, vit_size, channels, interpolation_mode, mean, std);
 
-//    return resizedImage;
-    return corp(resizedImage, vit_size, corp_size, channels);
+    return resizedImage;
+//    return corp(resizedImage, vit_size, corp_size, channels);
 }
 
 float* vis_preprocess(unsigned char* input, unsigned int source_xsize, unsigned int source_ysize, unsigned int vit_size, unsigned int channels) {
@@ -739,7 +739,7 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         std::vector<std::string> fileNames;
-        readDir(input_dir, fileNames);
+        readDir(input_dir, fileNames, std::string(output_dir));
 
         timeb t;
         ftime(&t);
@@ -749,7 +749,7 @@ int main(int argc, char *argv[]) {
             std::string input_file_abs_path = std::string(input_dir) + "/" + *iter;
             std::string output_file_abs_path = std::string(output_dir) + "/" + *iter;
 
-            int ret = image_process(input_file_abs_path.c_str(), output_file_abs_path, 224, 224, 256, 224);
+            int ret = image_process(input_file_abs_path.c_str(), output_file_abs_path, 224, 224, 256, 256);
             if (ret != 0)
                 continue;
 
@@ -767,7 +767,7 @@ int main(int argc, char *argv[]) {
         if (count != 0) {
             std::cout << "process images " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
         }
-        usleep(50000);
+        usleep(10000);
     }
 
 //    unsigned char* data;
