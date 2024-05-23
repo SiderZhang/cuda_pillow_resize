@@ -12,9 +12,15 @@ using namespace std;
 void scanDir(const string& base_path, const string& dir_path, std::vector<std::string>& filenames, std::string output_path) {
     DIR *pDir;
     struct dirent* ptr;
-    if(!(pDir = opendir(std::string(base_path).append(dir_path).c_str()))){
-        std::cout<<"Folder doesn't Exist!"<<std::endl;
-        return;
+    std::string src_folder = std::string(base_path).append(dir_path);
+    for (int i = 0;i < 5;i++) {
+        pDir = opendir(src_folder.c_str());
+        if (pDir != NULL) {
+            break;
+        }
+
+        std::cout<<"Failed to open folder <" << src_folder << ">! "<<"Retry "<< (i + 1) << std::endl;
+        usleep(5000);
     }
 
     std::string path_to_create = std::string(output_path).append(dir_path);

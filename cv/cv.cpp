@@ -15,7 +15,7 @@ int load_image_file(const char* filepath, unsigned char **output_buffer, unsigne
 //    cv::Mat input = cv::imread(path, cv::IMREAD_COLOR);
     cv::Mat src_input = cv::imread(path);
     if (src_input.empty()) {
-        std::cerr<<"Empty content got! Invalid image file: "<< path << std::endl;
+        std::cout<<"Empty content got! Invalid image file: "<< path << std::endl;
         return -1;
     }
 

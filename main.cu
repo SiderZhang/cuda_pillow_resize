@@ -671,6 +671,13 @@ void onImageRead(unsigned char* input, unsigned char **output_buffer, unsigned i
     cudaMemcpy(*output_buffer, input, width * height * channels * sizeof(unsigned char), cudaMemcpyHostToDevice);
 }
 
+void onInvalidImage(unsigned char **output_buffer, unsigned int& width, unsigned int& height, unsigned int& channels) {
+    width = 512;
+    height = 512;
+    channels = 3;
+    cudaMalloc(output_buffer, width * height * channels * sizeof(unsigned char));
+}
+
 void to_npy(const char* filename, std::string& outputFilename, float* array, unsigned int size, unsigned int channels) {
     const std::vector<unsigned long int> leshape11{3, size, size};
     std::vector<float> deit_vec(array, array + size * size * channels);
@@ -693,7 +700,8 @@ int image_process(const char* filename, std::string& output_filename_prefix, uns
     unsigned char* input;
     int ret = load_image_file(filename, &input, source_xsize, source_ysize, channels);
     if (ret == -1) {
-        return -1;
+        onInvalidImage(&input, source_xsize, source_ysize, channels);
+        std::cout<<"create empty image for " << filename <<" as stub"<<std::endl;
     }
 
     float* deit_pixel_data_d = deit_preprocess(input, source_xsize, source_ysize, deit_size, corp_size, channels);
