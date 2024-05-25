@@ -1,4 +1,5 @@
 #include <string>
+#include <cstring>
 #include <vector>
 #include <iostream>
 #include <unistd.h>
@@ -6,6 +7,7 @@
 #include <algorithm>
 #include <dirent.h>
 #include "sys/stat.h"
+#include "npy.h"
 
 using namespace std;
 
@@ -102,4 +104,53 @@ void readDir(const char* dirPath, std::vector<std::string>& filenames, std::stri
 //        filenames.push_back(fileName);
 //    }
 //    closedir(pDir);
+}
+
+void read_dir_download(std::string dirPath, std::vector<std::string>& filenames) {
+
+    DIR *pDir;
+    struct dirent* ptr;
+    if(!(pDir = opendir(dirPath.c_str()))){
+        std::cout<<"Folder doesn't Exist!"<<std::endl;
+        return;
+    }
+    struct stat s_buff;
+
+    while((ptr = readdir(pDir)) != nullptr) {
+        std::string fileName(ptr->d_name);
+        std::string tmp_dir_path = dirPath;
+        std::string path = tmp_dir_path.append("/").append(fileName);
+
+        std::string extension = fileName.substr(fileName.find_last_of('.') + 1);
+        transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        // ignore temp files
+        if (extension.compare("tmp") == 0) {
+            continue;
+        }
+
+        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0){
+            continue;
+        }
+
+        stat(path.c_str(), &s_buff);
+
+        if (S_ISREG(s_buff.st_mode)) {
+            filenames.push_back(fileName);
+            remove(path.c_str());
+        }
+
+    }
+    closedir(pDir);
+}
+
+void to_npy(std::string& outputFilename, float* array, unsigned int size, unsigned int channels) {
+    const std::vector<unsigned long int> leshape11{3, size, size};
+    std::vector<float> deit_vec(array, array + size * size * channels);
+    npy::npy_data<float> data11;
+    data11.data = deit_vec;
+    data11.shape = leshape11;
+    data11.fortran_order = false;
+    std::string tmpFileName = outputFilename + ".tmp";
+    write_npy(tmpFileName, data11);
+    rename(tmpFileName.c_str(), outputFilename.c_str());
 }
