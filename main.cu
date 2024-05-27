@@ -26,11 +26,12 @@ int main(int argc, char *argv[]) {
         timeb t;
         ftime(&t);
         std::vector<std::string> fileNames;
+        long t1 = t.time * 1000 + t.millitm;
         read_dir_download(input_dir, fileNames);
         submit_download_job(fileNames);
         wait_downloading_over(fileNames);
+        long t2 = t.time * 1000 + t.millitm;
 
-        long t1 = t.time * 1000 + t.millitm;
         int count = 0;
         while(true) {
             ImageBase* image_base = get_next_image_base();
@@ -56,10 +57,10 @@ int main(int argc, char *argv[]) {
             count++;
         }
         ftime(&t);
-        long t2 = t.time * 1000 + t.millitm;
+        long t3 = t.time * 1000 + t.millitm;
 
         if (count != 0) {
-            std::cout << "process images " << count << " for time " << t2 - t1 << " millis at "<< t2 << std::endl;
+            std::cout << "process images " << count << " for time " << t2 - t1 << " millis download and " << t3 - t2 << " GPU at "<< t2 << std::endl;
         }
         usleep(10000);
     }

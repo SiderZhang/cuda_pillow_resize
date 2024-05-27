@@ -86,7 +86,7 @@ void download_proc(std::string& image_suffix, SafeQueue* queue) {
     url.append(".coupangcdn.com/image/");
 
     std::string url_image_suffix = image_suffix;
-    replace(url_image_suffix.begin(), url_image_suffix.end(), '_', '/');
+    replace(url_image_suffix.begin(), url_image_suffix.end(), '|', '/');
     url.append(url_image_suffix);
 
     downloadFile(url, output_file_path);
@@ -124,7 +124,7 @@ void submit_download_job(std::vector<std::string>& image_suffix_fixed_vec){
 
     for (vector<string>::iterator iter = image_suffix_fixed_vec.begin(); iter != image_suffix_fixed_vec.end(); iter++) {
         string image_suffix_fixed = *iter;
-        replace(image_suffix_fixed.begin(), image_suffix_fixed.end(), '_', '/');
+        replace(image_suffix_fixed.begin(), image_suffix_fixed.end(), '|', '/');
         Task t(*iter, download_proc, result);
         pool->submit(t);
     }
