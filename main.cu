@@ -30,6 +30,8 @@ int main(int argc, char *argv[]) {
         read_dir_download(input_dir, fileNames);
         submit_download_job(fileNames);
         wait_downloading_over(fileNames);
+
+        ftime(&t);
         long t2 = t.time * 1000 + t.millitm;
 
         int count = 0;

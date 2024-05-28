@@ -133,7 +133,6 @@ void submit_download_job(std::vector<std::string>& image_suffix_fixed_vec){
 void wait_downloading_over(std::vector<std::string>& image_suffix_vec) {
     while (result->size() < image_suffix_vec.size()) {
         usleep(10 * 1000);
-        std::cout<<"waiting"<<std::endl;
     }
 }
 
