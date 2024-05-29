@@ -12,25 +12,27 @@
 #include "libcuda.h"
 
 //typedef ImageBase* (*Func)(std::string&);
-typedef void (*Func)(std::string&, SafeQueue*);
+typedef void (*Func)(std::string&, std::string output_dir, SafeQueue*);
 
 class Task {
 private :
     std::string image_suffix;
+    std::string output_dir;
     Func f;
     SafeQueue* queue;
+
 public:
     Task(): f(nullptr) {
 
     }
 
-    Task(std::string _image_suffix, Func _f, SafeQueue *_queue) : image_suffix(std::move(_image_suffix)), f(_f), queue(_queue) {
+    Task(std::string _image_suffix, std::string _output_dir, Func _f, SafeQueue *_queue) : image_suffix(std::move(_image_suffix)), output_dir(_output_dir), f(_f), queue(_queue) {
 
     }
 
 
     void operator()() {
-        f(image_suffix, queue);
+        f(image_suffix, output_dir, queue);
     }
 
     std::string getData() {

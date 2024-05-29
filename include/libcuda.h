@@ -9,7 +9,6 @@
 
 struct ImageBase {
     std::string image_path;
-    std::string image_suffix;
     unsigned char* pixel_data_d = nullptr;
     unsigned int source_xsize = 0;
     unsigned int source_ysize = 0;

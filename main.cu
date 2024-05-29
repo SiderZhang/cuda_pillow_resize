@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     std::string temp_path(output_dir);
     int thread_count = atoi(argv[3]);
 
-    init(thread_count, temp_path);
+    init(thread_count);
 
     while (true) {
         timeb t;
@@ -28,7 +28,11 @@ int main(int argc, char *argv[]) {
         std::vector<std::string> fileNames;
         long t1 = t.time * 1000 + t.millitm;
         read_dir_download(input_dir, fileNames);
-        submit_download_job(fileNames);
+        if (fileNames.empty()) {
+            continue;
+        }
+
+        submit_download_job(fileNames, temp_path);
         wait_downloading_over(fileNames);
 
         ftime(&t);
@@ -40,17 +44,8 @@ int main(int argc, char *argv[]) {
             if (image_base == nullptr)
                 break;
 
-//            std::string output_file_abs_path = std::string(output_dir) + "/" + image_base->image_suffix;
-
             int ret = image_process(image_base, image_base->image_path, 224, 224, 256, 256);
             if (ret != 0) {
-                delete image_base;
-                continue;
-            }
-
-            ret = remove(image_base->image_path.c_str());
-            if (ret != 0) {
-                std::cerr<<"failed to delete processed image file "<<image_base->image_path.c_str()<<std::endl;
                 delete image_base;
                 continue;
             }

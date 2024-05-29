@@ -518,17 +518,19 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
                          kk_horiz_d,
                          interpolation_mode);
 
+    cudaDeviceSynchronize();
     cudaError_t error =  cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 1 " << cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
     normalize_coeffs<<<target_xsize, ksize_horiz>>>(target_xsize, ksize_horiz, kk_horiz_d);
 
+    cudaDeviceSynchronize();
     error =  cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 2 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
@@ -540,9 +542,10 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     cudaMalloc(&kk_vert_d, target_ysize * ksize_vert * sizeof(double));
     cudaMalloc(&bounds_vert_d, target_ysize * 2 * sizeof(int));
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 3 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
@@ -554,25 +557,28 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
                          kk_vert_d,
                          interpolation_mode);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 4 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
     normalize_coeffs<<<target_ysize, ksize_vert>>>(target_ysize, ksize_vert, kk_vert_d);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 5 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
     shift_ysize<<<256, 256>>>(bounds_vert_d, target_ysize);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 6 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
@@ -588,17 +594,19 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
 
     build_result_horiz<<<256, 1024>>>(source_xsize, channels, target_xsize, source_ysize, input, temp, ksize_horiz, bounds_horiz_d, kk_horiz_d, looksup_d);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 7 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
     build_result_vert<<<256, 1024>>>(target_xsize, channels, target_xsize, target_ysize, temp, result_pixel_data_d, ksize_vert, bounds_vert_d, kk_vert_d, looksup_d);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 8 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
@@ -608,9 +616,10 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     rescale_normalize_d<<<256, 1024>>>(result_pixel_data_d, normalized_pixel_data_d, target_xsize, target_ysize,
                                        mean[0], mean[1], mean[2], std[0], std[1], std[2]);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 9 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 
@@ -623,9 +632,10 @@ float* image_preprocess(unsigned char* input, unsigned int source_xsize, unsigne
     cudaFree(bounds_vert_d);
     cudaFree(kk_vert_d);
 
+    cudaDeviceSynchronize();
     error = cudaGetLastError();
     if (error != cudaError_t::cudaSuccess) {
-        std::cerr<<cudaGetErrorString(error)<<std::endl;
+        std::cerr<<"S 10 " <<cudaGetErrorString(error)<<std::endl;
         return NULL;
     }
 

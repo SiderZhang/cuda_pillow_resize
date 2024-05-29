@@ -55,8 +55,6 @@ void downloadFile(const string& filename, const string& newFilename) {
         CURLcode code = curl_easy_perform(curl_handle);
         if (code != CURLE_OK)
             std::cout<<"tid: "<<std::this_thread::get_id()<<" failed to download image "<< filename <<std::endl;
-        else
-            std::cout<<"tid: "<<std::this_thread::get_id()<<" downloaded " << pagefilename <<std::endl;
 
         fclose(pagefile);
     } else {
@@ -73,11 +71,9 @@ std::random_device dev;
 std::mt19937 rng(dev());
 std::uniform_int_distribution<std::mt19937::result_type> dist15(1,15); // distribution in range [1, 6]
 
-std::string temp_dir;
+void download_proc(std::string& image_suffix, std::string output_dir, SafeQueue* queue) {
 
-void download_proc(std::string& image_suffix, SafeQueue* queue) {
-
-    string output_file_path(temp_dir);
+    string output_file_path(output_dir);
     output_file_path.append("/").append(image_suffix);
 
     string url("https://image");
@@ -92,7 +88,6 @@ void download_proc(std::string& image_suffix, SafeQueue* queue) {
     downloadFile(url, output_file_path);
     ImageBase* image_base = new ImageBase();
     image_base->image_path = output_file_path;
-    image_base->image_suffix = image_suffix;
 
     int ret = load_image_file(image_base->image_path.c_str(), image_base);
     if (ret == -1) {
@@ -100,21 +95,27 @@ void download_proc(std::string& image_suffix, SafeQueue* queue) {
         std::cout<<"create empty image for " << image_base->image_path <<" as stub"<<std::endl;
     }
 
+    ret = remove(image_base->image_path.c_str());
+    if (ret != 0) {
+        std::cerr<<"failed to delete processed image file "<<image_base->image_path.c_str()<<std::endl;
+    }
+
     queue->enqueue(image_base);
+
+    std::cout<<"load image " << image_suffix << std::endl;
 }
 
 
 SafeQueue* result = nullptr;
 ThreadPool* pool;
 
-void init(const int thread_count, const string& _temp_dir) {
+void init(const int thread_count) {
     curl_global_init(CURL_GLOBAL_ALL);
     pool = new ThreadPool(thread_count);
     pool->init();
-    temp_dir = _temp_dir;
 }
 
-void submit_download_job(std::vector<std::string>& image_suffix_fixed_vec){
+void submit_download_job(std::vector<std::string>& image_suffix_fixed_vec, std::string output_dir){
     if (result != nullptr) {
         delete result;
         result = nullptr;
@@ -125,7 +126,7 @@ void submit_download_job(std::vector<std::string>& image_suffix_fixed_vec){
     for (vector<string>::iterator iter = image_suffix_fixed_vec.begin(); iter != image_suffix_fixed_vec.end(); iter++) {
         string image_suffix_fixed = *iter;
         replace(image_suffix_fixed.begin(), image_suffix_fixed.end(), '|', '/');
-        Task t(*iter, download_proc, result);
+        Task t(*iter, output_dir, download_proc, result);
         pool->submit(t);
     }
 }
